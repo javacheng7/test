@@ -1,0 +1,324 @@
+<!doctype html>
+<html lang="en">
+ <head>
+  <meta charset="UTF-8">
+  <meta name="Generator" content="EditPlus®">
+  <meta name="Author" content="">
+  <meta name="Keywords" content="">
+  <meta name="Description" content="">
+  <title>Document</title>
+  <style>
+	pre{
+		font-size: 22px; 
+	}
+  </style>
+ </head>
+ <body>
+  <pre>
+<b style="font-size:40px;">租房PHP THRIFT流程</b>：
+
+大致流程:<br/>
+<iframe src="Thrift.svg" width="1500" height="1200">
+</iframe>
+
+
+具体流程:
+
+一.getRentSearchData
+1.校验参数（参数及敏感词）
+ 敏感词用的二手房的http接口 /singlematch
+2.getRentSearch
+  2.1 filterSearchData（筛选项查询）
+      通用一（Filters、SpreadBusiness、Facet、ParamsConvert）
+      $result['search_type'] = 'filter';
+  2.2 categorySearchData （分类词查询）
+      通用一（Filters、Category、SpreadBusiness、Facet、ParamsConvert）
+      $result['search_type'] = 'filter';
+  2.3 keywordSearchData（普通关键词查询）
+      通用一（Filters、SpreadBusiness、Facet、SplitKeyword、ParamsConvert）
+      $result['search_type'] = 'normal_keyword';
+
+  通用二（search）
+3.buildRentSearchResult
+
+
+
+
+
+二.getRentPricingData（套餐）
+   略
+三.ggetRentTopData（置顶）
+   略
+四.getRentAuctionData（精选）
+   略
+
+通用一（Rewriter）：
+array(
+    new Service_Search_Rent_Rewriter_FiltersRewriter(),
+    new Service_Search_Rent_Rewriter_CategoryRewriter(),
+    new Service_Search_Rent_Rewriter_SpreadBusinessRewriter(),
+    new Service_Search_Rent_Rewriter_FacetRewriter(),
+    new Service_Search_Rent_Rewriter_SplitKeywordRewriter(),
+    new Service_Search_Rent_Rewriter_ParamsConvertRewriter(),
+)
+1.FiltersRewriter：(筛选项)
+  1.1 range字段处理
+      max/min、area需要*100
+2.CategoryRewriter：（分类词）
+  1.1 获取不到分类词（$process_dto->state = 'break'）直接return [] 终止查询
+  1.2 $city_id, $keyword, $app_id 获取分类词
+      1.2.1 key去掉特殊字符,为空返回
+      1.2.2 从分类词服务里面获取分类词，稍作格式化，为空返回
+        1.$keyword, $dict_name 请求 /search 接口，返回结果的data参数
+		   （eg:http://10.249.7.17:8801/search?dictionary=anjuke_sale_14&text=%E5%B0%86%E5%BA%9C%E5%AE%B6%E5%9B%AD）
+        2.格式化data
+        按照type遍历，返回指定格式字符串
+      1.2.3 格式化分类词 返回$arr_result
+       1.解析出类别关键词
+        根据$str_key_type，解析是否经纬度参数
+        如果$arr_result[$str_key_type][$str_value]) 有的话，保留value字符串最长的
+        返回array('category' => $arr_result, 'keys' => $arrKeys);
+        $arrKeys 批量的key:/将府家园/
+        $arr_result 数组：$arr_result[$str_key_type][$str_value] = $str_name 多个[]
+       2.解析小区关键词
+        遍历$arr_result['community'] 取出名字最长的小区，如果包含某个，删除掉
+        if(strpos($str_type_max,$str_type) !== false && $str_type_max != $str_type ){
+             unset($arr_params['category'][$type][$str_key]);
+             unset($arr_params['keys'][$str_type]);
+         }
+       3.解析地址关键词
+        同上：//获取最长的地址并去除地址被包含的地址
+        遍历地址，如果小区包含地址的话，去掉地址
+       4.解析区域关键词
+        遍历区域，如果小区名、小区地址包含区域的话，则去除区域，保留小区名、小区地址 （好不好呢？）
+       5.解析商圈关键词
+        遍历商圈，如果区域的话，则去除商圈
+        遍历商圈，如果小区名、小区地址包含商圈的话，则去除商圈，保留小区名、小区地址
+	遍历商圈，如果被商圈包含，则去除商圈
+        如果区域商圈名称相同，搜索区域
+       6.解析板块关键词
+        遍历板块，如果区域的话，则去除区域 
+        遍历板块，如果小区名、小区地址包含板块的话，则去除板块，保留小区名、小区地址
+	遍历板块，如果被区域包含，则去除板块
+        如果区域板块名称相同，搜索区域
+       7.解析房型关键词
+        同上：//获取最长的房型
+        房型被包含在小区名中，则去除房型，保留小区名
+        房屋类型同7
+       8.解析类型关键词
+        如果类型被包含在小区名中，则去除类型，保留小区名
+       9.解析地铁站点关键词
+        如果小区名、地址、区域、板块都包含地铁站的话，则去掉地铁站
+      10.解析地铁线路关键词
+        同上：//获取最长的地铁线
+        如果小区名、地址、区域、板块、地铁站都包含地铁线的话，则去掉地铁线
+      11.解析磐石的地铁站点
+        同9
+      12.解析磐石的地铁线路
+	同10
+      13.解析其他关键词
+        如果以上返回空（？？？）
+        1.不为空
+         替换掉key中，所有命中的词。
+         对结果进行分词（User_Common_Util_StringUtils::getScws($str_keyword)）
+         去掉停用词
+         返回 $arr_params['category']['other'] = $str_keyword
+
+      
+      最后返回
+        return array(
+            'category' => $arr_data['category'],
+            'all' => $all_data,//（类别关键词）
+        );
+
+      1.2.4 从分类中，替换查询参数 $arr_params
+          $params = $category_list = array();
+          1.匹配到小区 $category_list add/ $params add
+          2.匹配到地址 (??????)
+            $params[Service_Search_Common_Const_Params::COMMUNITY_IDS] = array_merge(array_keys($param_kw_category['address']), $community_ids);
+          3.区域 版块 商圈
+            3.1 开了商圈的城市&&有商圈数据
+		$category_list add/ $params add
+            3.2 有板块
+                $category_list add/ $params add
+	    3.3 有区域
+                $category_list add/ $params add	
+          4.匹配到房型	$category_list add/ $params add 最大最小
+	  5.匹配到房屋类型  $category_list add/ $params add 最大最小
+          6.匹配到出租类型 $category_list add/ $params add
+          7.匹配到磐石地铁站和线 $category_list add/ $params add
+          8.匹配到非磐石地铁站和线 $category_list add/ $params add
+          9.最后剩余的关键词 $params[Service_Search_Common_Const_Params::KEYWORD] = $param_kw_category['other'];	
+          返回：
+	return array(
+            'params' => $params,
+            'category_list' => $category_list
+        );	
+      1.2.5 返回 $result
+        $result['all'] = $arr_result['all'];
+        $result['category'] = $arr_result['category'];
+        $result['params'] = $arr_params['params'];
+        $result['category_list'] = $arr_params['category_list'];
+
+3.SpreadBusinessRewriter（商业配置）：
+  3.1 根据appid获取默认配置rent_spread_business文件的spread_business属性数组
+      $process_dto->spread_params = $spread_business;
+  3.2 checkIsNeedBusinessProp判断是否需要商业数据
+        //判断需不需要精选
+        $process_dto->spread_condition['auction'] （只有58导入不出、有排序字段不出、根据业务方判断是否、Tw端天津上海去掉）
+        //判断是否需要套餐
+        $process_dto->spread_condition['pricing'] （根据业务方判断是否）
+        //判断是否需要置顶房源
+        $process_dto->spread_condition['pricing_top'] （只有58导入不出、有排序字段不出、根据业务方判断是否、是否开置顶城市、Tw端天津上海去掉）
+        $process_dto->spread_condition['mix'] --不看
+        //判断是否有排序字段
+        $process_dto->has_sort_params = $this->has_sort_params; 
+        //判断是否需要重复房源过滤 --开启（PC/M/APP）
+  3.3 其它
+   1. 置顶城市和三端 、无板块 ，加载other配置（都是-1,查询全部）
+   2. 置顶城市和三端 、有板块 ，加载block_price配置（精选40）
+   
+
+4.FacetRewriter：（未看）
+
+5.SplitKeywordRewriter：（keyword分词）
+ 5.1 filterSpecialChars 过滤特殊字符（保留 /([\d|A-z|<\x{4e00}-\x{9fa5}>]+)/u）
+ 5.2 分词
+     $process_dto->keyword_fmt = $this->getSplitWords($keyword);
+     （白名单、数字str、长度小于9）默认keyword
+      大于9,调用分词服务(http://10.10.3.46:8999/seg/pkuseg?text=将府家园)
+
+6.ParamsConvertRewriter：
+  $this->searchFormatParams = new Service_Search_Common_Const_SearchFormatParams();(搜索参数dto)
+  $this->searchFormatParams->app_id = $search_dto->app_id;
+  $this->searchFormatParams->filter_fields['city_id'] = $search_process_dto->search_dto->city_id;
+  6.1 设置查询条件
+      1.如果分类词参数有KEYWORD，$this->searchFormatParams->keyword_fmt
+        如果keyword_fmt有值，$this->searchFormatParams->keyword_fmt = $search_process_dto->keyword_fmt;
+        否则：$this->searchFormatParams->keyword = $keyword;
+      2.// 查询字段？？？
+        if ($this->searchFormatParams->keyword_fmt) {
+            $this->searchFormatParams->query_type = 'dismax';
+            $this->searchFormatParams->query_fields = array(Service_Search_Common_Const_SearchParams::AUCTION_TYPE);
+        } else {
+            if (Service_Search_Common_Util_Convert_SpreadBusiness::isRentNeedAuctionType($search_dto->app_id)) {
+                $this->searchFormatParams->query_fields = array(Service_Search_Common_Const_SearchParams::AUCTION_TYPE);
+            }
+            $this->searchFormatParams->query_type = 'standard';
+        }
+      3.转化查询参数（朝向等字段注意、mapping映射新版老版）
+      4.分类词筛选merge到filter_fields（mapping映射，居然还有多个的映射）（分类词解析出来的查询条件和筛选传进来的查询条件是一致的 我们优先选用筛选的）  
+  6.2 设置分页参数
+  6.3 设置业务展示条件
+      $spread_condition = $process_dto->spread_condition;
+        foreach ($spread_condition as $key => $condition) {
+            if ($condition == 1) {
+                $this->searchFormatParams->business_condition[$key] = $condition;
+            }
+        }
+  6.4 设置业务获取类型的参数
+	$spread_params = $process_dto->spread_params;
+
+        if ($process_dto->spread_condition['auction'] != 1) {
+            unset($spread_params['auction']);
+        }
+
+        $this->searchFormatParams->business_params = $spread_params;
+  6.5 设置各类房源的总数相关（在pageParam精选和置顶count ??? -1咋处理的，后面会重置每个类型查询到的总数）
+	$business_params = $process_dto->spread_params;
+        $page_params = $process_dto->search_dto->page_params;
+        if (!empty($business_params)) {
+            foreach ($business_params as $business => $num) {
+                $tmp_key = $business . "_count";
+                if (!property_exists($page_params, $tmp_key)) {
+                    continue;
+                }
+                $this->searchFormatParams->prop_type_count[$business] = $page_params->$tmp_key ? intval($page_params->$tmp_key) : 0;
+            }
+        }
+  6.6 设置排序字段
+	array(
+      0 => "area_num",
+      1 => "total_price",
+      2 => "post_time",
+      3 => "sortauctionrand",
+      4 => "sortrand",
+      5 => "sortpersonalizedrank",
+      6 => "sortpricingtoprand",
+      7 => "sortboost",
+      8 => "distance",
+      9 => "sortweightrand",
+      10 => "sortpersonalizedrankzf",
+      11 => "unit_price",
+      12 => "sortpersonalizedrankzfpackage",
+      13 => "auction_price",
+      14 => "sortrandreal2",
+      15 => "sortpersonalizedranklevel",
+    );
+      }
+   6.7 设置聚合条件（未看）
+   6.8 设置poi和poi range 、设备数据 、重复房源字段
+
+通用二（search）:
+
+   1. rewrite链执行
+   2. SearchTypeAllRequest.request
+     2.1 查询精选（当$search_format_params->business_condition['auction'] == 1）（计算分页？？、好复杂的AB、需要细看Service_Search_Common_Search_Search 参数）
+        1.组装查询参数（copy一份类似baseParserd的查询filter）
+	 $need_count = intval($search_dto->page_params->rows - $front_prop_count);
+         $auction_params = $this->get_request_params->getAuctionParams($search_format_params,$need_count);
+           LOCAL_IDS/VIDEO_TYPES/百强县LOCALS、COMMUNITY_IDS（用多个的索引）
+         $start_rows = $this->calculateStartAndRows($search_format_params, 'auction', $now_rows);
+	 排序：默认
+         $sort = array($sort_fields[\service\search\constant\SortFields::SORT_WEIGHT_RAND] => $sort_directions[\service\search\constant\SortDirection::DESC]);
+        2.thrift接口查询
+         $search_process_dto = Service_Search_Common_Util_Convert_SpreadTest::ABRewrite($search_process_dto);
+         $search_client = $this->getSearchClient($search_process_dto->app_id);
+            Service_Search_Common_Search_Search.query
+               组装search_core的参数请求List
+               组装search_core的参数请求Facet
+         处理结果返回特定格式数据
+         $res = array(
+            'page' => $pager,
+            'facet' => $result->facet_result,
+            'list' => is_array($props) ? $props : array(),
+            'debug' => $result->debug,
+            'ab_test_flow_id' => $result->abtest_flow_id
+         );
+        3.设置数量大小（重置每个类型查询到的总数到prop_type_count里,如果精选40取min）
+
+     2.2 查询置顶（当$search_format_params->business_condition['pricing_top'] == 1）
+         同上
+     2.3 查询套餐（当$search_format_params->business_condition['pricing'] == 1）
+         同上
+     //合并结果
+      $list = array_merge($auction_result['list'], $pricing_top_result['list'], $pricing_result['list']);
+      $auction_ab_test_flow_id = $auction_result['ab_test_flow_id'];
+      $pricing_ab_test_flow_id = $pricing_result['ab_test_flow_id'];
+     //返回
+      $result = array(
+            'code' => 0,
+            'page' => $pager,
+            'debug' => ($search_dto->debug == 1) ? array_merge($auction_result['debug'], $pricing_top_result['debug'], $pricing_result['debug']) : array(),
+            'list' => $list,
+            'facet' => $pricing_result['facet'],
+            'ab_test_flow_id' => $ab_test_flow_id,
+        );
+
+   3.format
+    $result = $this->data_formater->format($data, $source_params, $process_params, $ext_params);
+     //格式化聚合参数 & 聚合的结果会把区间的聚合转换成id的格式去进行聚合
+     //分类词数据
+
+
+
+
+
+
+
+
+
+
+  </pre>
+ </body>
+</html>
