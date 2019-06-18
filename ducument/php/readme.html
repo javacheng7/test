@@ -11,6 +11,9 @@
 	pre{
 		font-size: 22px; 
 	}
+	pre span {
+		color:red;
+	}
   </style>
  </head>
  <body>
@@ -40,17 +43,40 @@
 
   通用二（search）
 3.buildRentSearchResult
+    $search_result = new RentSearchResultDto();
+	$search_result->code = $result['code'];
+	$search_result->message = self::getMessageByCode($search_result->code);
+	if($result['code'] !== ServiceErrorCode::SUCCESS){
+		return $search_result;
+	}
 
+	$data = new RentSearchResultDataDto();
+	$data->prop_list = self::buildRentSearchResultDataList($result['list']);
+	$data->page = new  RentSearchPageDto();
+	$data->page = self::buildRentSearchResultPage($result['page']);
+	$data->facet = self::buildRentSearchResultFacet($result['facet_result']);
+	$data->search_type = $result['search_type'];
 
+	if(!empty($result['category_result_list'])){
+		$data->category_list = self::buildSearchResultCategoryList($result['category_result_list']);
+	}
+
+	$search_result->search_debug = $result['debug'];
+	$search_result->data = $data;
+
+	return $search_result;
 
 
 
 二.getRentPricingData（套餐）
-   略
+   同一
+   1.区别（无分类词搜索逻辑，之前走keyword逻辑）
+   
 三.ggetRentTopData（置顶）
-   略
+   同二
+
 四.getRentAuctionData（精选）
-   略
+   同三
 
 通用一（Rewriter）：
 array(
@@ -310,15 +336,62 @@ array(
      //格式化聚合参数 & 聚合的结果会把区间的聚合转换成id的格式去进行聚合
      //分类词数据
 
+3.search-php-sdk：（搜索sdk）
+  1.1 初始化
+     logger对象
+	 验证app_id
+	 加载search配置文件
+	 checkOptions
+	 $this->query = new Search_Core_Search_SearchQuery($this->app_id, $this->buildSelectUrl());// 测试host
+     $this->response = new Search_Core_Search_SearchResponse($this->buildSelectUrl());
+  1.2 调用方设置query搜索参数
+      Search_Core_Search_SearchQuery 提供了一些工具方法类似AbstraceBaseParser的方法 
+  1.3 fetchResult
+    1.请求param再加点东西
+	 public function getParams()
+     {
+        $param =  array(
+            'm' => $this->m,
+            'query' => $this->getQuery(),
+        );
+        if($this->device_enable && !empty($this->device_info)){
+            $param = array_merge($this->device_info, $param);
+        }
+        return $param;
+    }
+	$params['app_id'] = $this->app_id;
+	if(isset($_COOKIE['aQQ_ajkguid'])){
+		$params['cookie_id'] = $_COOKIE['aQQ_ajkguid'];
+		if(empty($params['guid'])){
+			$params['guid'] = $_COOKIE['aQQ_ajkguid'];
+		}
+	}
+	2.$this->response->fetchResult()  （搜索到底用那个？）
+	  1.url中包含：universal
+	   esearch-http-proxy获取 
+	  2.url搜索
+	    $this->scf_server_conf = APF::get_instance()->get_config('universal_scf_server','search');
+        if($this->scf_server_conf == null || strpos($this->scf_server_conf['scf_key_path'], "search-core") !== false){
+            $result = $this->getResponse();
+            return $this->formatResult($result);
+        }
+	  3.scf搜索
+	    $this->getScfResponse()
+		return $this->formatResult($result);
+	  4.其它
+	    $result = $this->getResponse();
+        $format_result = $this->formatResult($result);
 
-
-
-
-
-
-
-
-
+-------------------------补充商业地产---------------------------
+（迁移是否需要facet）
+1.分类词
+  类似
+2.SpreadBusinessRewriter与租房不一样
+3.search
+ 置顶优先城市
+  置顶、精选、套餐
+ 其它
+  精选、置顶、套餐
   </pre>
  </body>
 </html>
